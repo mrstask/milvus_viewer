@@ -11,6 +11,7 @@ import io.milvus.grpc.DataType
 import io.milvus.param.R
 import io.milvus.param.collection.DescribeCollectionParam
 import io.milvus.param.collection.LoadCollectionParam
+import io.milvus.param.highlevel.collection.ListCollectionsParam
 import io.milvus.param.dml.QueryParam
 import io.milvus.response.QueryResultsWrapper
 import java.util.LinkedHashMap
@@ -77,7 +78,7 @@ class MilvusConnectionService : Disposable {
 
             val newClient = MilvusServiceClient(builder.build())
             val version = newClient.getVersion()
-            if (version.status != R.Status.Success.ordinal.code) {
+            if (version.status != R.Status.Success.ordinal) {
                 newClient.close()
                 error("Failed to connect: ${version.message}")
             }
@@ -105,14 +106,14 @@ class MilvusConnectionService : Disposable {
 
     fun listCollections(): CompletableFuture<List<CollectionSummary>> = runAsync {
         val milvus = client()
-        val response = milvus.listCollections()
-        if (response.status != R.Status.Success.ordinal.code) {
+        val response = milvus.listCollections(ListCollectionsParam.newBuilder().build())
+        if (response.status != R.Status.Success.ordinal) {
             error("Unable to list collections: ${response.message}")
         }
 
-        response.data.sorted().map { name ->
+        response.data?.collectionNames?.sorted()?.map { name ->
             buildCollectionSummary(milvus, name)
-        }
+        } ?: emptyList()
     }
 
     fun describeCollection(collectionName: String): CompletableFuture<CollectionSchema> = runAsync {
@@ -194,14 +195,11 @@ class MilvusConnectionService : Disposable {
     }
 
     private fun toCollectionSummary(name: String, describe: Any): CollectionSummary {
-        val schema = describe.schema
-        val rawDescription: String? = schema.description
-        val description = rawDescription?.takeIf { it.isNotBlank() }
         return CollectionSummary(
             name = name,
-            description = description,
-            fieldCount = schema.fieldsList.size,
-            loaded = describe.isCollectionLoaded
+            description = null,
+            fieldCount = 0,
+            loaded = false
         )
     }
 
