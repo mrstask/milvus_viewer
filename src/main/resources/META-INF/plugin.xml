@@ -10,11 +10,10 @@
     <toolWindow id="Milvus" factoryClass="dev.potik.milvus.ui.MilvusToolWindowFactory"
                 anchor="left" canCloseContent="false" />
     <applicationService serviceImplementation="dev.potik.milvus.core.MilvusConnectionService"/>
-    <applicationConfigurable instance="dev.potik.milvus.settings.MilvusSettingsConfigurable"/>
+    <notificationGroup id="Milvus Connector" displayType="BALLOON" isLogByDefault="false"/>
   </extensions>
 
   <actions>
     <action id="Milvus.Connect" class="dev.potik.milvus.actions.ConnectAction" text="Connect to Milvus"/>
   </actions>
 </idea-plugin>
-

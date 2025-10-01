@@ -1,20 +1,17 @@
 package dev.potik.milvus.core
 
 import com.intellij.openapi.Disposable
-import com.intellij.openapi.application.AppExecutorUtil
+import com.intellij.util.concurrency.AppExecutorUtil
 import com.intellij.openapi.application.ApplicationManager
 import com.intellij.openapi.components.Service
 import com.intellij.openapi.diagnostic.Logger
 import io.milvus.client.MilvusServiceClient
-import io.milvus.grpc.ConnectParam
+import io.milvus.param.ConnectParam
 import io.milvus.grpc.DataType
 import io.milvus.param.R
 import io.milvus.param.collection.DescribeCollectionParam
-import io.milvus.param.collection.ListCollectionsParam
 import io.milvus.param.collection.LoadCollectionParam
-import io.milvus.param.control.GetVersionParam
 import io.milvus.param.dml.QueryParam
-import io.milvus.response.DescribeCollectionResponse
 import io.milvus.response.QueryResultsWrapper
 import java.util.LinkedHashMap
 import java.util.concurrent.CompletableFuture
@@ -79,8 +76,8 @@ class MilvusConnectionService : Disposable {
             }
 
             val newClient = MilvusServiceClient(builder.build())
-            val version = newClient.getVersion(GetVersionParam.newBuilder().build())
-            if (version.status != R.Status.Success) {
+            val version = newClient.getVersion()
+            if (version.status != R.Status.Success.ordinal.code) {
                 newClient.close()
                 error("Failed to connect: ${version.message}")
             }
@@ -108,8 +105,8 @@ class MilvusConnectionService : Disposable {
 
     fun listCollections(): CompletableFuture<List<CollectionSummary>> = runAsync {
         val milvus = client()
-        val response = milvus.listCollections(ListCollectionsParam.newBuilder().build())
-        if (response.status != R.Status.Success) {
+        val response = milvus.listCollections()
+        if (response.status != R.Status.Success.ordinal.code) {
             error("Unable to list collections: ${response.message}")
         }
 
@@ -132,7 +129,7 @@ class MilvusConnectionService : Disposable {
                     .withCollectionName(collectionName)
                     .build()
             )
-            if (loadResult.status != R.Status.Success) {
+            if (loadResult.status != R.Status.Success.ordinal) {
                 log.warn("Failed to load collection $collectionName before preview: ${loadResult.message}")
             }
         }
@@ -147,7 +144,7 @@ class MilvusConnectionService : Disposable {
             .build()
 
         val result = milvus.query(query)
-        if (result.status != R.Status.Success) {
+        if (result.status != R.Status.Success.ordinal) {
             error("Query failure: ${result.message}")
         }
 
@@ -155,7 +152,7 @@ class MilvusConnectionService : Disposable {
         val rows = wrapper.rowRecords.map { record ->
             val row = LinkedHashMap<String, Any?>()
             fieldNames.forEach { field ->
-                row[field] = record.getFieldValue(field)
+                row[field] = record.get(field)
             }
             row
         }
@@ -169,7 +166,7 @@ class MilvusConnectionService : Disposable {
                 .withCollectionName(name)
                 .build()
         )
-        if (describe.status != R.Status.Success) {
+        if (describe.status != R.Status.Success.ordinal) {
             error("Failed to describe collection $name: ${describe.message}")
         }
         return toCollectionSummary(name, describe.data)
@@ -181,7 +178,7 @@ class MilvusConnectionService : Disposable {
                 .withCollectionName(name)
                 .build()
         )
-        if (describe.status != R.Status.Success) {
+        if (describe.status != R.Status.Success.ordinal) {
             error("Failed to describe collection $name: ${describe.message}")
         }
         val summary = toCollectionSummary(name, describe.data)
@@ -190,13 +187,13 @@ class MilvusConnectionService : Disposable {
                 name = field.name,
                 dataType = field.dataType,
                 primaryKey = field.isPrimaryKey,
-                autoId = field.isAutoID
+                autoId = field.autoID
             )
         }
         return CollectionSchema(summary, fields)
     }
 
-    private fun toCollectionSummary(name: String, describe: DescribeCollectionResponse): CollectionSummary {
+    private fun toCollectionSummary(name: String, describe: Any): CollectionSummary {
         val schema = describe.schema
         val rawDescription: String? = schema.description
         val description = rawDescription?.takeIf { it.isNotBlank() }

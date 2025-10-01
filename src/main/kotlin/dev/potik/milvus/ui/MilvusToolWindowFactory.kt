@@ -1,7 +1,7 @@
 package dev.potik.milvus.ui
 
 import com.intellij.credentialStore.CredentialAttributes
-import com.intellij.credentialStore.PasswordSafe
+import com.intellij.ide.passwordSafe.PasswordSafe
 import com.intellij.credentialStore.generateServiceName
 import com.intellij.notification.NotificationGroupManager
 import com.intellij.notification.NotificationType
