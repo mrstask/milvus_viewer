@@ -57,13 +57,10 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private val passwordSafe = PasswordSafe.instance
 
     private val hostField = JBTextField()
-    private val portSpinner = JSpinner(SpinnerNumberModel(19530, 1, 65535, 1)).apply {
-        (editor as JSpinner.NumberEditor).format.isParseIntegerOnly = true
-    }
+    private val portField = JBTextField("19530")
     private val usernameField = JBTextField()
     private val passwordField = JBPasswordField()
     private val databaseField = JBTextField()
-    private val defaultCollectionField = JBTextField()
     private val secureCheckBox = JBCheckBox("Use TLS (HTTPS)")
     private val previewLimitSpinner = JSpinner(SpinnerNumberModel(MilvusConnectionService.DEFAULT_PREVIEW_LIMIT, 10, 1000, 10))
 
@@ -73,7 +70,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private val testConnectionButton = JButton("Test Connection")
     private val refreshCollectionsButton = JButton("Refresh")
 
-    private val collectionsModel = object : DefaultTableModel(arrayOf("Collection", "Fields", "Loaded", "Description"), 0) {
+    private val collectionsModel = object : DefaultTableModel(arrayOf("Collection", "Columns", "Records"), 0) {
         override fun isCellEditable(row: Int, column: Int): Boolean = false
     }
     private val collectionsTable = JBTable(collectionsModel)
@@ -96,12 +93,13 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private fun buildConnectionPanel(): JComponent {
         statusLabel.font = JBFont.small()
 
-        // Create inline panel for host and port
+        // Create inline panel for host, port and TLS
         val hostPortPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
             add(JBLabel("Host:"))
             add(hostField.apply { preferredSize = java.awt.Dimension(150, preferredSize.height) })
             add(JBLabel("Port:"))
-            add(portSpinner.apply { preferredSize = java.awt.Dimension(80, preferredSize.height) })
+            add(portField.apply { preferredSize = java.awt.Dimension(80, preferredSize.height) })
+            add(secureCheckBox)
         }
 
         // Create inline panel for username and password
@@ -111,19 +109,24 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
             add(JBLabel("Password:"))
             add(passwordField.apply { preferredSize = java.awt.Dimension(100, preferredSize.height) })
         }
+        
+        // Create inline panel for database only
+        val dbPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
+            add(JBLabel("Database:"))
+            add(databaseField.apply { preferredSize = java.awt.Dimension(200, preferredSize.height) })
+        }
 
         val formBuilder = FormBuilder.createFormBuilder()
             .addComponent(hostPortPanel)
             .addComponent(userPassPanel)
-            .addLabeledComponent("Database", databaseField, true)
-            .addLabeledComponent("Default Collection", defaultCollectionField, true)
-            .addComponent(secureCheckBox)
-            .addLabeledComponent("Preview Limit", previewLimitSpinner, true)
+            .addComponent(dbPanel)
 
         val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
             add(testConnectionButton)
             add(connectButton)
             add(disconnectButton)
+            add(JBLabel("Preview Limit:"))
+            add(previewLimitSpinner.apply { preferredSize = java.awt.Dimension(80, preferredSize.height) })
             add(statusLabel)
         }
 
@@ -205,10 +208,9 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private fun loadStateIntoForm() {
         val config = settingsState.toConnectionConfig()
         hostField.text = config.host
-        portSpinner.value = config.port
+        portField.text = config.port.toString()
         usernameField.text = config.username.orEmpty()
         databaseField.text = config.databaseName.orEmpty()
-        defaultCollectionField.text = config.defaultCollection.orEmpty()
         secureCheckBox.isSelected = config.secure
         previewLimitSpinner.value = config.previewLimit
 
@@ -270,7 +272,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         connectButton.isEnabled = false
         testConnectionButton.isEnabled = false
 
-        refreshCollections(config.defaultCollection)
+        refreshCollections()
     }
 
     private fun disconnect() {
@@ -283,7 +285,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         collectionsModel.setRowCount(0)
     }
 
-    private fun refreshCollections(preselect: String? = null) {
+    private fun refreshCollections() {
         if (!connectionService.isConnected()) {
             notify("Connect to Milvus first", NotificationType.WARNING)
             return
@@ -298,32 +300,66 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
                         return@invokeOnEdt
                     }
 
-                    updateCollectionsTable(summaries ?: emptyList(), preselect)
+                    updateCollectionsTable(summaries ?: emptyList())
                 }
             }
     }
 
-    private fun updateCollectionsTable(summaries: List<CollectionSummary>, preselect: String?) {
+    private fun updateCollectionsTable(summaries: List<CollectionSummary>) {
         collectionsModel.setRowCount(0)
         summaries.forEach { summary ->
             collectionsModel.addRow(arrayOf(
                 summary.name,
-                summary.fieldCount,
-                if (summary.loaded) "Yes" else "No",
-                summary.description.orEmpty()
+                "Loading...", // We'll load the column count asynchronously
+                "Loading..." // We'll load the record count asynchronously
             ))
         }
-
-        if (summaries.isEmpty()) {
-            return
+        
+        // Load column counts and record counts asynchronously
+        summaries.forEachIndexed { index, summary ->
+            loadColumnCount(summary.name, index)
+            loadRecordCount(summary.name, index)
         }
 
-        val targetName = preselect
-            ?: settingsState.toConnectionConfig().defaultCollection
-            ?: summaries.first().name
+        if (summaries.isNotEmpty()) {
+            collectionsTable.selectionModel.setSelectionInterval(0, 0)
+        }
+    }
 
-        val rowIndex = summaries.indexOfFirst { it.name == targetName }.takeIf { it >= 0 } ?: 0
-        collectionsTable.selectionModel.setSelectionInterval(rowIndex, rowIndex)
+    private fun loadColumnCount(collectionName: String, rowIndex: Int) {
+        connectionService.describeCollection(collectionName)
+            .whenComplete { schema, throwable ->
+                invokeOnEdt {
+                    if (throwable != null || rowIndex >= collectionsModel.rowCount) {
+                        return@invokeOnEdt
+                    }
+                    val columnCount = schema?.fields?.size ?: 0
+                    collectionsModel.setValueAt(columnCount.toString(), rowIndex, 1)
+                }
+            }
+    }
+
+    private fun loadRecordCount(collectionName: String, rowIndex: Int) {
+        connectionService.getCollectionCount(collectionName)
+            .whenComplete { count, throwable ->
+                invokeOnEdt {
+                    if (throwable != null || rowIndex >= collectionsModel.rowCount) {
+                        return@invokeOnEdt
+                    }
+                    val displayCount = if (count != null) {
+                        if (count >= 1000000) {
+                            String.format("%.1fM", count / 1000000.0)
+                        } else if (count >= 1000) {
+                            String.format("%.1fK", count / 1000.0)
+                        } else {
+                            count.toString()
+                        }
+                    } else {
+                        "Error"
+                    }
+                    collectionsModel.setValueAt(displayCount, rowIndex, 2)
+                }
+            }
     }
 
 
@@ -332,9 +368,13 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         if (hostField.text.isNullOrBlank()) {
             return "Host is required"
         }
-        val port = (portSpinner.value as Number).toInt()
-        if (port !in 1..65535) {
-            return "Port must be between 1 and 65535"
+        val portText = portField.text.trim()
+        if (portText.isEmpty()) {
+            return "Port is required"
+        }
+        val port = portText.toIntOrNull()
+        if (port == null || port !in 1..65535) {
+            return "Port must be a number between 1 and 65535"
         }
         return null
     }
@@ -342,11 +382,11 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private fun buildConnectionConfig(): MilvusConnectionService.ConnectionConfig =
         MilvusConnectionService.ConnectionConfig(
             host = hostField.text.trim(),
-            port = (portSpinner.value as Number).toInt(),
+            port = portField.text.trim().toInt(),
             username = usernameField.text.trim().takeIf { it.isNotEmpty() },
             secure = secureCheckBox.isSelected,
             databaseName = databaseField.text.trim().takeIf { it.isNotEmpty() },
-            defaultCollection = defaultCollectionField.text.trim().takeIf { it.isNotEmpty() },
+            defaultCollection = null,
             previewLimit = currentPreviewLimit()
         )
 

@@ -166,6 +166,80 @@ class MilvusConnectionService : Disposable {
         CollectionPreview(schema = schema, rows = rows)
     }
 
+    fun previewCollectionPaginated(
+        collectionName: String, 
+        offset: Int = 0, 
+        limit: Int = DEFAULT_PREVIEW_LIMIT
+    ): CompletableFuture<CollectionPreview> = runAsync {
+        val milvus = client()
+        val schema = buildCollectionSchema(milvus, collectionName)
+
+        if (!schema.summary.loaded) {
+            val loadResult = milvus.loadCollection(
+                LoadCollectionParam.newBuilder()
+                    .withCollectionName(collectionName)
+                    .build()
+            )
+            if (loadResult.status != R.Status.Success.ordinal) {
+                log.warn("Failed to load collection $collectionName before preview: ${loadResult.message}")
+            }
+        }
+
+        val fieldNames = schema.fields.map { it.name }
+        val query = QueryParam.newBuilder()
+            .withCollectionName(collectionName)
+            .withOutFields(fieldNames)
+            .withLimit(limit.toLong())
+            .withOffset(offset.toLong())
+            .withExpr("")
+            .build()
+
+        val result = milvus.query(query)
+        if (result.status != R.Status.Success.ordinal) {
+            error("Query failure: ${result.message}")
+        }
+
+        val wrapper = QueryResultsWrapper(result.data)
+        val rows = wrapper.rowRecords.map { record ->
+            val row = LinkedHashMap<String, Any?>()
+            fieldNames.forEach { field ->
+                row[field] = record.get(field)
+            }
+            row
+        }
+
+        CollectionPreview(schema = schema, rows = rows)
+    }
+
+    fun getCollectionCount(collectionName: String): CompletableFuture<Long> = runAsync {
+        val milvus = client()
+        val countQuery = QueryParam.newBuilder()
+            .withCollectionName(collectionName)
+            .withOutFields(listOf("count(*)"))
+            .withExpr("")
+            .build()
+        
+        val countResult = milvus.query(countQuery)
+        
+        if (countResult.status != R.Status.Success.ordinal) {
+            log.warn("Failed to get count for collection $collectionName: ${countResult.message}")
+            0L
+        } else {
+            val wrapper = QueryResultsWrapper(countResult.data)
+            try {
+                val counts = wrapper.getFieldWrapper("count(*)").getFieldData()
+                if (counts.isNotEmpty()) {
+                    (counts.first() as? Number)?.toLong() ?: 0L
+                } else {
+                    0L
+                }
+            } catch (e: Exception) {
+                log.warn("Failed to parse count result for collection $collectionName", e)
+                0L
+            }
+        }
+    }
+
     private fun buildCollectionSummary(client: MilvusServiceClient, name: String): CollectionSummary {
         val describe = client.describeCollection(
             DescribeCollectionParam.newBuilder()
