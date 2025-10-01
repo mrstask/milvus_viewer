@@ -1,0 +1,20 @@
+<idea-plugin>
+  <id>dev.potik.milvus-connector</id>
+  <name>Milvus Connector</name>
+  <vendor email="you@example.com">potik.dev</vendor>
+  <description>Connect to Milvus, browse collections, and run vector searches.</description>
+  <depends>com.intellij.modules.platform</depends>
+  <depends optional="true">com.intellij.modules.python</depends>
+
+  <extensions defaultExtensionNs="com.intellij">
+    <toolWindow id="Milvus" factoryClass="dev.potik.milvus.ui.MilvusToolWindowFactory"
+                anchor="left" canCloseContent="false" />
+    <applicationService serviceImplementation="dev.potik.milvus.core.MilvusConnectionService"/>
+    <applicationConfigurable instance="dev.potik.milvus.settings.MilvusSettingsConfigurable"/>
+  </extensions>
+
+  <actions>
+    <action id="Milvus.Connect" class="dev.potik.milvus.actions.ConnectAction" text="Connect to Milvus"/>
+  </actions>
+</idea-plugin>
+
