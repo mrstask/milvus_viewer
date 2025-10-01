@@ -24,10 +24,10 @@ import com.intellij.util.ui.JBEmptyBorder
 import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import dev.potik.milvus.core.MilvusConnectionService
-import dev.potik.milvus.core.MilvusConnectionService.CollectionPreview
 import dev.potik.milvus.core.MilvusConnectionService.CollectionSummary
-import dev.potik.milvus.core.MilvusConnectionService.FieldInfo
 import dev.potik.milvus.settings.MilvusSettingsState
+import dev.potik.milvus.editor.MilvusCollectionVirtualFile
+import com.intellij.openapi.fileEditor.FileEditorManager
 import java.awt.BorderLayout
 import java.awt.FlowLayout
 import java.util.concurrent.CompletionException
@@ -37,6 +37,10 @@ import javax.swing.JPanel
 import javax.swing.JSpinner
 import javax.swing.SpinnerNumberModel
 import javax.swing.table.DefaultTableModel
+import java.awt.event.MouseAdapter
+import java.awt.event.MouseEvent
+import javax.swing.JPopupMenu
+import javax.swing.JMenuItem
 
 class MilvusToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
@@ -74,12 +78,6 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     }
     private val collectionsTable = JBTable(collectionsModel)
 
-    private val recordsModel = object : DefaultTableModel(arrayOf<String>(), 0) {
-        override fun isCellEditable(row: Int, column: Int): Boolean = false
-    }
-    private val recordsTable = JBTable(recordsModel)
-
-    private val collectionMetaLabel = JBLabel("Select a collection to preview records")
 
     private val rootPanel = JPanel(BorderLayout())
 
@@ -138,23 +136,11 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
 
     private fun buildDataPanel(): JComponent {
         configureCollectionsTable()
-        configureRecordsTable()
 
-        val collectionsPanel = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(0, 8, 8, 4)
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(0, 8, 8, 8)
             add(buildCollectionsHeader(), BorderLayout.NORTH)
             add(JBScrollPane(collectionsTable), BorderLayout.CENTER)
-        }
-
-        val recordsPanel = JPanel(BorderLayout()).apply {
-            border = JBUI.Borders.empty(0, 4, 8, 8)
-            add(collectionMetaLabel, BorderLayout.NORTH)
-            add(JBScrollPane(recordsTable), BorderLayout.CENTER)
-        }
-
-        return JBSplitter(false, 0.35f).apply {
-            firstComponent = collectionsPanel
-            secondComponent = recordsPanel
         }
     }
 
@@ -171,13 +157,33 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         collectionsTable.autoCreateRowSorter = true
         collectionsTable.tableHeader.reorderingAllowed = false
         collectionsTable.emptyText.text = "Connect to Milvus to load collections"
+        
+        // Add double-click and right-click listeners
+        collectionsTable.addMouseListener(object : MouseAdapter() {
+            override fun mouseClicked(e: MouseEvent) {
+                if (e.clickCount == 2 && connectionService.isConnected()) {
+                    val row = collectionsTable.rowAtPoint(e.point)
+                    if (row >= 0) {
+                        val collectionName = collectionsTable.getValueAt(row, 0).toString()
+                        openCollectionInEditor(collectionName)
+                    }
+                }
+            }
+            
+            override fun mousePressed(e: MouseEvent) {
+                if (e.isPopupTrigger) {
+                    showContextMenu(e)
+                }
+            }
+            
+            override fun mouseReleased(e: MouseEvent) {
+                if (e.isPopupTrigger) {
+                    showContextMenu(e)
+                }
+            }
+        })
     }
 
-    private fun configureRecordsTable() {
-        recordsTable.autoCreateRowSorter = true
-        recordsTable.tableHeader.reorderingAllowed = false
-        recordsTable.emptyText.text = "Select a collection to load data"
-    }
 
     private fun initialiseComponentState() {
         disconnectButton.isEnabled = false
@@ -190,17 +196,9 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         disconnectButton.addActionListener { disconnect() }
         refreshCollectionsButton.addActionListener { refreshCollections() }
 
-        collectionsTable.selectionModel.addListSelectionListener { event ->
-            if (!event.valueIsAdjusting) {
-                previewSelectedCollection()
-            }
-        }
 
         previewLimitSpinner.addChangeListener {
             settingsState.updatePreviewLimit(currentPreviewLimit())
-            if (connectionService.isConnected()) {
-                previewSelectedCollection()
-            }
         }
     }
 
@@ -283,8 +281,6 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         refreshCollectionsButton.isEnabled = false
         testConnectionButton.isEnabled = true
         collectionsModel.setRowCount(0)
-        recordsModel.setRowCount(0)
-        collectionMetaLabel.text = "Select a collection to preview records"
     }
 
     private fun refreshCollections(preselect: String? = null) {
@@ -319,8 +315,6 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         }
 
         if (summaries.isEmpty()) {
-            collectionMetaLabel.text = "No collections available"
-            recordsModel.setRowCount(0)
             return
         }
 
@@ -332,44 +326,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         collectionsTable.selectionModel.setSelectionInterval(rowIndex, rowIndex)
     }
 
-    private fun previewSelectedCollection() {
-        if (!connectionService.isConnected()) {
-            return
-        }
-        val row = collectionsTable.selectedRow
-        if (row < 0) {
-            return
-        }
-        val collectionName = collectionsTable.getValueAt(row, 0).toString()
-        setRecordsLoading(true)
-        connectionService.previewCollection(collectionName, currentPreviewLimit())
-            .whenComplete { preview, throwable ->
-                invokeOnEdt {
-                    setRecordsLoading(false)
-                    if (throwable != null) {
-                        notify("Failed to load records: ${unwrap(throwable).message}", NotificationType.ERROR)
-                        return@invokeOnEdt
-                    }
-                    if (preview != null) {
-                        applyPreview(preview)
-                    }
-                }
-            }
-    }
 
-    private fun applyPreview(preview: CollectionPreview) {
-        val fieldNames = preview.schema.fields.map { it.name }.toTypedArray()
-        recordsModel.setColumnIdentifiers(fieldNames)
-        recordsModel.setRowCount(0)
-        preview.rows.forEach { row ->
-            val values = preview.schema.fields.map { field -> formatValue(field, row[field.name]) }.toTypedArray()
-            recordsModel.addRow(values)
-        }
-
-        val summary = preview.schema.summary
-        val descriptionPart = summary.description?.let { " • $it" } ?: ""
-        collectionMetaLabel.text = "${summary.name} • ${summary.fieldCount} fields • Loaded: ${if (summary.loaded) "Yes" else "No"}$descriptionPart"
-    }
 
     private fun validateForm(): String? {
         if (hostField.text.isNullOrBlank()) {
@@ -407,30 +364,8 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         refreshCollectionsButton.text = if (loading) "Loading…" else "Refresh"
     }
 
-    private fun setRecordsLoading(loading: Boolean) {
-        recordsTable.emptyText.setText(if (loading) "Loading records…" else "Select a collection to load data")
-    }
 
-    private fun formatValue(field: FieldInfo, value: Any?): Any? {
-        return when (value) {
-            null -> null
-            is FloatArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
-            is DoubleArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
-            is IntArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
-            is LongArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
-            is BooleanArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
-            is ByteArray -> value.joinToString(prefix = "[", postfix = "]") { (it.toInt() and 0xFF).toString() }
-            is List<*> -> formatList(value)
-            is Array<*> -> formatList(value.toList())
-            else -> value
-        }
-    }
 
-    private fun formatList(values: List<*>): String {
-        if (values.isEmpty()) return "[]"
-        val preview = values.take(10).joinToString { it?.toString().orEmpty() }
-        return if (values.size > 10) "[$preview, …]" else "[$preview]"
-    }
 
     private fun credentialAttributes(host: String, port: Int, username: String?): CredentialAttributes {
         val userPart = username?.takeIf { it.isNotBlank() } ?: "anonymous"
@@ -458,6 +393,40 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
 
     private fun clearArray(array: CharArray) {
         array.fill('\u0000')
+    }
+
+    private fun showContextMenu(e: MouseEvent) {
+        if (!connectionService.isConnected()) return
+        
+        val row = collectionsTable.rowAtPoint(e.point)
+        if (row >= 0) {
+            collectionsTable.setRowSelectionInterval(row, row)
+            val collectionName = collectionsTable.getValueAt(row, 0).toString()
+            
+            val popupMenu = JPopupMenu()
+            val openInEditorItem = JMenuItem("Open in Editor")
+            openInEditorItem.addActionListener {
+                openCollectionInEditor(collectionName)
+            }
+            popupMenu.add(openInEditorItem)
+            
+            val refreshItem = JMenuItem("Refresh Collection")
+            refreshItem.addActionListener {
+                refreshCollections()
+            }
+            popupMenu.add(refreshItem)
+            
+            popupMenu.show(collectionsTable, e.x, e.y)
+        }
+    }
+
+    private fun openCollectionInEditor(collectionName: String) {
+        val config = connectionService.getActiveConfig() ?: return
+        val virtualFile = MilvusCollectionVirtualFile(collectionName, config)
+        
+        invokeOnEdt {
+            FileEditorManager.getInstance(project).openFile(virtualFile, true)
+        }
     }
 
     override fun dispose() {

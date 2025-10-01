@@ -11,6 +11,12 @@
                 anchor="left" canCloseContent="false" />
     <applicationService serviceImplementation="dev.potik.milvus.core.MilvusConnectionService"/>
     <notificationGroup id="Milvus Connector" displayType="BALLOON" isLogByDefault="false"/>
+    
+    <!-- File editor for Milvus collections -->
+    <fileEditorProvider implementation="dev.potik.milvus.editor.MilvusCollectionEditorProvider"/>
+    
+    <!-- Virtual file system for Milvus collections -->
+    <virtualFileSystem implementation="dev.potik.milvus.editor.MilvusVirtualFileSystem" key="milvus"/>
   </extensions>
 
   <actions>
