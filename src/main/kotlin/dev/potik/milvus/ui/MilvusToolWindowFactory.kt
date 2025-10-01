@@ -53,9 +53,12 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private val passwordSafe = PasswordSafe.instance
 
     private val hostField = JBTextField()
-    private val portSpinner = JSpinner(SpinnerNumberModel(19530, 1, 65535, 1))
+    private val portSpinner = JSpinner(SpinnerNumberModel(19530, 1, 65535, 1)).apply {
+        (editor as JSpinner.NumberEditor).format.isParseIntegerOnly = true
+    }
     private val usernameField = JBTextField()
     private val passwordField = JBPasswordField()
+    private val databaseField = JBTextField()
     private val defaultCollectionField = JBTextField()
     private val secureCheckBox = JBCheckBox("Use TLS (HTTPS)")
     private val previewLimitSpinner = JSpinner(SpinnerNumberModel(MilvusConnectionService.DEFAULT_PREVIEW_LIMIT, 10, 1000, 10))
@@ -95,11 +98,26 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private fun buildConnectionPanel(): JComponent {
         statusLabel.font = JBFont.small()
 
+        // Create inline panel for host and port
+        val hostPortPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
+            add(JBLabel("Host:"))
+            add(hostField.apply { preferredSize = java.awt.Dimension(150, preferredSize.height) })
+            add(JBLabel("Port:"))
+            add(portSpinner.apply { preferredSize = java.awt.Dimension(80, preferredSize.height) })
+        }
+
+        // Create inline panel for username and password
+        val userPassPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
+            add(JBLabel("User:"))
+            add(usernameField.apply { preferredSize = java.awt.Dimension(100, preferredSize.height) })
+            add(JBLabel("Password:"))
+            add(passwordField.apply { preferredSize = java.awt.Dimension(100, preferredSize.height) })
+        }
+
         val formBuilder = FormBuilder.createFormBuilder()
-            .addLabeledComponent("Host", hostField, true)
-            .addLabeledComponent("Port", portSpinner, true)
-            .addLabeledComponent("User", usernameField, true)
-            .addLabeledComponent("Password", passwordField, true)
+            .addComponent(hostPortPanel)
+            .addComponent(userPassPanel)
+            .addLabeledComponent("Database", databaseField, true)
             .addLabeledComponent("Default Collection", defaultCollectionField, true)
             .addComponent(secureCheckBox)
             .addLabeledComponent("Preview Limit", previewLimitSpinner, true)
@@ -191,6 +209,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         hostField.text = config.host
         portSpinner.value = config.port
         usernameField.text = config.username.orEmpty()
+        databaseField.text = config.databaseName.orEmpty()
         defaultCollectionField.text = config.defaultCollection.orEmpty()
         secureCheckBox.isSelected = config.secure
         previewLimitSpinner.value = config.previewLimit
@@ -369,6 +388,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
             port = (portSpinner.value as Number).toInt(),
             username = usernameField.text.trim().takeIf { it.isNotEmpty() },
             secure = secureCheckBox.isSelected,
+            databaseName = databaseField.text.trim().takeIf { it.isNotEmpty() },
             defaultCollection = defaultCollectionField.text.trim().takeIf { it.isNotEmpty() },
             previewLimit = currentPreviewLimit()
         )

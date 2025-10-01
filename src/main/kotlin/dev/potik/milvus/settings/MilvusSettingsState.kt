@@ -16,6 +16,7 @@ class MilvusSettingsState : PersistentStateComponent<MilvusSettingsState.State> 
         var port: Int = 19530,
         var username: String = "",
         var secure: Boolean = false,
+        var databaseName: String = "",
         var defaultCollection: String? = null,
         var previewLimit: Int = MilvusConnectionService.DEFAULT_PREVIEW_LIMIT
     )
@@ -34,6 +35,7 @@ class MilvusSettingsState : PersistentStateComponent<MilvusSettingsState.State> 
             port = config.port,
             username = config.username.orEmpty(),
             secure = config.secure,
+            databaseName = config.databaseName.orEmpty(),
             defaultCollection = config.defaultCollection,
             previewLimit = config.previewLimit
         )
@@ -49,6 +51,7 @@ class MilvusSettingsState : PersistentStateComponent<MilvusSettingsState.State> 
             port = state.port,
             username = state.username.ifBlank { null },
             secure = state.secure,
+            databaseName = state.databaseName.ifBlank { null },
             defaultCollection = state.defaultCollection,
             previewLimit = state.previewLimit
         )

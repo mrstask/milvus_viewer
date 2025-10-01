@@ -27,6 +27,7 @@ class MilvusConnectionService : Disposable {
         val port: Int,
         val username: String?,
         val secure: Boolean,
+        val databaseName: String? = null,
         val defaultCollection: String? = null,
         val previewLimit: Int = DEFAULT_PREVIEW_LIMIT
     )
@@ -74,6 +75,10 @@ class MilvusConnectionService : Disposable {
 
             if (config.username != null && passwordValue != null) {
                 builder.withAuthorization(config.username, passwordValue)
+            }
+            
+            if (config.databaseName != null) {
+                builder.withDatabaseName(config.databaseName)
             }
 
             val newClient = MilvusServiceClient(builder.build())
