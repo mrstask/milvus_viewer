@@ -1,6 +1,10 @@
-# Milvus Connector for PyCharm
+# Milvus Vector Database Connector
 
-A PyCharm plugin that provides a graphical interface for connecting to Milvus vector databases, browsing collections, and performing vector searches.
+[![JetBrains Plugin](https://img.shields.io/badge/JetBrains-Plugin-orange.svg)](https://plugins.jetbrains.com/)
+[![Version](https://img.shields.io/badge/version-1.0.0-blue.svg)]()
+[![License](https://img.shields.io/badge/license-MIT-green.svg)](LICENSE)
+
+A comprehensive IntelliJ Platform plugin that enables seamless integration with Milvus vector databases directly from your JetBrains IDE. Perfect for AI/ML developers working with vector embeddings, semantic search, and recommendation systems.
 
 ## Features
 

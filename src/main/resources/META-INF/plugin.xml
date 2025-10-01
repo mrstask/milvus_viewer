@@ -1,8 +1,60 @@
 <idea-plugin>
   <id>dev.potik.milvus-connector</id>
-  <name>Milvus Connector</name>
-  <vendor email="you@example.com">potik.dev</vendor>
-  <description>Connect to Milvus, browse collections, and run vector searches.</description>
+  <name>Milvus Vector Database Connector</name>
+  <version>1.0.0</version>
+  <vendor email="support@potik.dev" url="https://github.com/potik-dev/milvus-connector">potik.dev</vendor>
+  
+  <description><![CDATA[
+    <h3>Milvus Vector Database Connector for JetBrains IDEs</h3>
+    
+    <p>A comprehensive plugin that enables seamless integration with Milvus vector databases directly from your JetBrains IDE. Perfect for AI/ML developers working with vector embeddings, semantic search, and recommendation systems.</p>
+    
+    <h4>🚀 Key Features:</h4>
+    <ul>
+      <li><strong>Direct Database Connection</strong> - Connect to Milvus instances with support for authentication, TLS, and custom databases</li>
+      <li><strong>Interactive Collection Browser</strong> - View collections with real-time column counts and record statistics</li>
+      <li><strong>Paginated Data Viewer</strong> - Browse collection data with efficient pagination (100 records per page)</li>
+      <li><strong>Smart Data Expansion</strong> - Double-click to expand and view vector embeddings and JSON objects in readable format</li>
+      <li><strong>Secure Credential Management</strong> - Passwords stored securely using JetBrains credential store</li>
+      <li><strong>Real-time Statistics</strong> - Live updates of collection metadata and record counts</li>
+    </ul>
+    
+    <h4>🎯 Perfect for:</h4>
+    <ul>
+      <li>AI/ML Engineers working with vector databases</li>
+      <li>Data Scientists exploring embedding datasets</li>
+      <li>Developers building recommendation systems</li>
+      <li>Anyone working with semantic search applications</li>
+    </ul>
+    
+    <h4>💾 Supported Data Types:</h4>
+    <ul>
+      <li>Vector embeddings (float arrays)</li>
+      <li>JSON objects and metadata</li>
+      <li>All Milvus primitive types</li>
+      <li>Nested data structures with expandable views</li>
+    </ul>
+    
+    <p>Compatible with all JetBrains IDEs including IntelliJ IDEA, PyCharm, WebStorm, and more.</p>
+    ]]></description>
+  
+  <change-notes><![CDATA[
+    <h4>Version 1.0.0</h4>
+    <ul>
+      <li>Initial release</li>
+      <li>Milvus database connection with authentication support</li>
+      <li>Collection browser with real-time statistics</li>
+      <li>Paginated data viewer with 100 records per page</li>
+      <li>Expandable view for vector embeddings and JSON data</li>
+      <li>Secure password storage integration</li>
+      <li>Support for TLS connections</li>
+      <li>Compatible with Milvus 2.0+</li>
+    </ul>
+    ]]></change-notes>
+
+  <!-- Build numbers for IDE compatibility -->
+  <idea-version since-build="242" until-build="242.*"/>
+  
   <depends>com.intellij.modules.platform</depends>
   <depends optional="true">com.intellij.modules.python</depends>
 
@@ -16,7 +68,7 @@
     <fileEditorProvider implementation="dev.potik.milvus.editor.MilvusCollectionEditorProvider"/>
     
     <!-- Virtual file system for Milvus collections -->
-    <virtualFileSystem implementation="dev.potik.milvus.editor.MilvusVirtualFileSystem" key="milvus"/>
+    <virtualFileSystem key="milvus" implementationClass="dev.potik.milvus.editor.MilvusVirtualFileSystem"/>
   </extensions>
 
   <actions>

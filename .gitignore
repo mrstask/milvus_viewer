@@ -3,19 +3,52 @@
 *.iws
 *.iml
 *.ipr
+.idea_modules/
+*.idea
 
 # Gradle
 .gradle/
 build/
 gradle-app.setting
 !gradle-wrapper.jar
+gradle.properties.local
 
-# OS
-.DS_Store
-Thumbs.db
-
-# Plugin specific
+# Plugin Development
 out/
+dist/
 *.jar
 !gradle-wrapper.jar
+
+# Build outputs
+target/
+bin/
+
+# OS specific
+.DS_Store
+.DS_Store?
+._*
+.Spotlight-V100
+.Trashes
+ehthumbs.db
+Thumbs.db
+
+# Environment variables
+.env
+.env.local
+
+# IDE specific
+*.swp
+*.swo
+*~
+
+# Log files
+*.log
+
+# Temporary files
+*.tmp
+*.temp
+
+# Secrets and tokens
+publish-token.txt
+publish.properties
 
