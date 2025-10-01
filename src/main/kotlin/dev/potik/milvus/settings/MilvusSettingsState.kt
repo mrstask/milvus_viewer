@@ -39,6 +39,10 @@ class MilvusSettingsState : PersistentStateComponent<MilvusSettingsState.State> 
         )
     }
 
+    fun updatePreviewLimit(limit: Int) {
+        state = state.copy(previewLimit = limit)
+    }
+
     fun toConnectionConfig(): MilvusConnectionService.ConnectionConfig =
         MilvusConnectionService.ConnectionConfig(
             host = state.host,

@@ -1,220 +1,446 @@
 package dev.potik.milvus.ui
 
+import com.intellij.credentialStore.CredentialAttributes
+import com.intellij.credentialStore.PasswordSafe
+import com.intellij.credentialStore.generateServiceName
+import com.intellij.notification.NotificationGroupManager
+import com.intellij.notification.NotificationType
+import com.intellij.openapi.application.ApplicationManager
+import com.intellij.openapi.project.DumbAware
 import com.intellij.openapi.project.Project
+import com.intellij.openapi.util.Disposer
 import com.intellij.openapi.wm.ToolWindow
 import com.intellij.openapi.wm.ToolWindowFactory
+import com.intellij.ui.JBSplitter
+import com.intellij.ui.components.JBCheckBox
 import com.intellij.ui.components.JBLabel
-import com.intellij.ui.components.JBPanel
+import com.intellij.ui.components.JBPasswordField
 import com.intellij.ui.components.JBScrollPane
 import com.intellij.ui.components.JBTextField
-import com.intellij.ui.components.JBCheckBox
-import com.intellij.ui.components.JBTextArea
 import com.intellij.ui.table.JBTable
+import com.intellij.util.concurrency.EdtExecutorService
+import com.intellij.util.ui.FormBuilder
+import com.intellij.util.ui.JBEmptyBorder
+import com.intellij.util.ui.JBFont
 import com.intellij.util.ui.JBUI
 import dev.potik.milvus.core.MilvusConnectionService
+import dev.potik.milvus.core.MilvusConnectionService.CollectionPreview
+import dev.potik.milvus.core.MilvusConnectionService.CollectionSummary
+import dev.potik.milvus.core.MilvusConnectionService.FieldInfo
+import dev.potik.milvus.settings.MilvusSettingsState
 import java.awt.BorderLayout
-import java.awt.GridLayout
-import java.awt.event.ActionEvent
-import java.awt.event.ActionListener
-import javax.swing.*
+import java.awt.FlowLayout
+import java.util.concurrent.CompletionException
+import javax.swing.JButton
+import javax.swing.JComponent
+import javax.swing.JPanel
+import javax.swing.JSpinner
+import javax.swing.SpinnerNumberModel
 import javax.swing.table.DefaultTableModel
 
-class MilvusToolWindowFactory : ToolWindowFactory {
+class MilvusToolWindowFactory : ToolWindowFactory, DumbAware {
     override fun createToolWindowContent(project: Project, toolWindow: ToolWindow) {
-        val root = JBPanel<JBPanel<*>>(BorderLayout())
-        
-        // Connection panel
-        val connectionPanel = createConnectionPanel()
-        
-        // Collections browser panel
-        val collectionsPanel = createCollectionsPanel()
-        
-        // Search panel
-        val searchPanel = createSearchPanel()
-        
-        // Create tabbed pane
-        val tabbedPane = JTabbedPane()
-        tabbedPane.addTab("Connection", connectionPanel)
-        tabbedPane.addTab("Collections", collectionsPanel)
-        tabbedPane.addTab("Search", searchPanel)
-        
-        root.add(tabbedPane, BorderLayout.CENTER)
-        toolWindow.component.add(root)
+        val milvusToolWindow = MilvusToolWindow(project)
+        val content = toolWindow.contentManager.factory.createContent(milvusToolWindow.component, "", false)
+        toolWindow.contentManager.addContent(content)
+        Disposer.register(toolWindow.disposable, milvusToolWindow)
     }
-    
-    private fun createConnectionPanel(): JPanel {
-        val panel = JBPanel<JBPanel<*>>(BorderLayout())
-        val formPanel = JBPanel<JBPanel<*>>(GridLayout(0, 2, 5, 5))
-        
-        // Connection fields
-        val hostField = JBTextField("localhost")
-        val portField = JBTextField("19530")
-        val userField = JBTextField("")
-        val passwordField = JPasswordField("")
-        val secureCheckbox = JBCheckBox("Use TLS")
-        val connectButton = JButton("Connect")
-        val disconnectButton = JButton("Disconnect")
-        val statusLabel = JBLabel("Disconnected")
-        
-        // Add components to form
-        formPanel.add(JBLabel("Host:"))
-        formPanel.add(hostField)
-        formPanel.add(JBLabel("Port:"))
-        formPanel.add(portField)
-        formPanel.add(JBLabel("User:"))
-        formPanel.add(userField)
-        formPanel.add(JBLabel("Password:"))
-        formPanel.add(passwordField)
-        formPanel.add(JBLabel(""))
-        formPanel.add(secureCheckbox)
-        formPanel.add(connectButton)
-        formPanel.add(disconnectButton)
-        formPanel.add(JBLabel("Status:"))
-        formPanel.add(statusLabel)
-        
-        // Button actions
-        connectButton.addActionListener {
-            try {
-                MilvusConnectionService.instance().connect(
-                    hostField.text,
-                    portField.text.toInt(),
-                    userField.text.ifBlank { null },
-                    String(passwordField.password).ifBlank { null },
-                    secureCheckbox.isSelected
-                )
-                statusLabel.text = "Connected to ${hostField.text}:${portField.text}"
-                statusLabel.foreground = JBUI.CurrentTheme.Link.linkColor
-            } catch (e: Exception) {
-                statusLabel.text = "Error: ${e.message}"
-                statusLabel.foreground = JBUI.CurrentTheme.Error.errorForeground
+}
+
+private class MilvusToolWindow(private val project: Project) : com.intellij.openapi.Disposable {
+    private val connectionService = MilvusConnectionService.instance()
+    private val settingsState = MilvusSettingsState.getInstance()
+    private val passwordSafe = PasswordSafe.instance
+
+    private val hostField = JBTextField()
+    private val portSpinner = JSpinner(SpinnerNumberModel(19530, 1, 65535, 1))
+    private val usernameField = JBTextField()
+    private val passwordField = JBPasswordField()
+    private val defaultCollectionField = JBTextField()
+    private val secureCheckBox = JBCheckBox("Use TLS (HTTPS)")
+    private val previewLimitSpinner = JSpinner(SpinnerNumberModel(MilvusConnectionService.DEFAULT_PREVIEW_LIMIT, 10, 1000, 10))
+
+    private val statusLabel = JBLabel("Disconnected")
+    private val connectButton = JButton("Connect")
+    private val disconnectButton = JButton("Disconnect")
+    private val testConnectionButton = JButton("Test Connection")
+    private val refreshCollectionsButton = JButton("Refresh")
+
+    private val collectionsModel = object : DefaultTableModel(arrayOf("Collection", "Fields", "Loaded", "Description"), 0) {
+        override fun isCellEditable(row: Int, column: Int): Boolean = false
+    }
+    private val collectionsTable = JBTable(collectionsModel)
+
+    private val recordsModel = object : DefaultTableModel(arrayOf<String>(), 0) {
+        override fun isCellEditable(row: Int, column: Int): Boolean = false
+    }
+    private val recordsTable = JBTable(recordsModel)
+
+    private val collectionMetaLabel = JBLabel("Select a collection to preview records")
+
+    private val rootPanel = JPanel(BorderLayout())
+
+    init {
+        initialiseComponentState()
+        rootPanel.border = JBEmptyBorder(8)
+        rootPanel.add(buildConnectionPanel(), BorderLayout.NORTH)
+        rootPanel.add(buildDataPanel(), BorderLayout.CENTER)
+        attachListeners()
+        loadStateIntoForm()
+    }
+
+    val component: JComponent
+        get() = rootPanel
+
+    private fun buildConnectionPanel(): JComponent {
+        statusLabel.font = JBFont.small()
+
+        val formBuilder = FormBuilder.createFormBuilder()
+            .addLabeledComponent("Host", hostField, true)
+            .addLabeledComponent("Port", portSpinner, true)
+            .addLabeledComponent("User", usernameField, true)
+            .addLabeledComponent("Password", passwordField, true)
+            .addLabeledComponent("Default Collection", defaultCollectionField, true)
+            .addComponent(secureCheckBox)
+            .addLabeledComponent("Preview Limit", previewLimitSpinner, true)
+
+        val buttonPanel = JPanel(FlowLayout(FlowLayout.LEFT, 8, 0)).apply {
+            add(testConnectionButton)
+            add(connectButton)
+            add(disconnectButton)
+            add(statusLabel)
+        }
+
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(8, 8, 12, 8)
+            add(formBuilder.panel, BorderLayout.CENTER)
+            add(buttonPanel, BorderLayout.SOUTH)
+        }
+    }
+
+    private fun buildDataPanel(): JComponent {
+        configureCollectionsTable()
+        configureRecordsTable()
+
+        val collectionsPanel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(0, 8, 8, 4)
+            add(buildCollectionsHeader(), BorderLayout.NORTH)
+            add(JBScrollPane(collectionsTable), BorderLayout.CENTER)
+        }
+
+        val recordsPanel = JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.empty(0, 4, 8, 8)
+            add(collectionMetaLabel, BorderLayout.NORTH)
+            add(JBScrollPane(recordsTable), BorderLayout.CENTER)
+        }
+
+        return JBSplitter(false, 0.35f).apply {
+            firstComponent = collectionsPanel
+            secondComponent = recordsPanel
+        }
+    }
+
+    private fun buildCollectionsHeader(): JComponent {
+        return JPanel(BorderLayout()).apply {
+            border = JBUI.Borders.emptyBottom(4)
+            add(JBLabel("Collections"), BorderLayout.WEST)
+            add(refreshCollectionsButton, BorderLayout.EAST)
+        }
+    }
+
+    private fun configureCollectionsTable() {
+        collectionsTable.setSelectionMode(javax.swing.ListSelectionModel.SINGLE_SELECTION)
+        collectionsTable.autoCreateRowSorter = true
+        collectionsTable.tableHeader.reorderingAllowed = false
+        collectionsTable.emptyText.text = "Connect to Milvus to load collections"
+    }
+
+    private fun configureRecordsTable() {
+        recordsTable.autoCreateRowSorter = true
+        recordsTable.tableHeader.reorderingAllowed = false
+        recordsTable.emptyText.text = "Select a collection to load data"
+    }
+
+    private fun initialiseComponentState() {
+        disconnectButton.isEnabled = false
+        refreshCollectionsButton.isEnabled = false
+    }
+
+    private fun attachListeners() {
+        connectButton.addActionListener { connect(false) }
+        testConnectionButton.addActionListener { connect(true) }
+        disconnectButton.addActionListener { disconnect() }
+        refreshCollectionsButton.addActionListener { refreshCollections() }
+
+        collectionsTable.selectionModel.addListSelectionListener { event ->
+            if (!event.valueIsAdjusting) {
+                previewSelectedCollection()
             }
         }
-        
-        disconnectButton.addActionListener {
-            MilvusConnectionService.instance().disconnect()
-            statusLabel.text = "Disconnected"
-            statusLabel.foreground = JBUI.CurrentTheme.DefaultTabs.underlineColor
+
+        previewLimitSpinner.addChangeListener {
+            settingsState.updatePreviewLimit(currentPreviewLimit())
+            if (connectionService.isConnected()) {
+                previewSelectedCollection()
+            }
         }
-        
-        panel.add(formPanel, BorderLayout.NORTH)
-        return panel
     }
-    
-    private fun createCollectionsPanel(): JPanel {
-        val panel = JBPanel<JBPanel<*>>(BorderLayout())
-        
-        val refreshButton = JButton("Refresh Collections")
-        val collectionsTable = JBTable()
-        val collectionsModel = DefaultTableModel(arrayOf("Collection Name", "Description"), 0)
-        collectionsTable.model = collectionsModel
-        
-        val scrollPane = JBScrollPane(collectionsTable)
-        
-        refreshButton.addActionListener {
-            if (MilvusConnectionService.instance().isConnected()) {
-                try {
-                    val collections = MilvusConnectionService.instance().listCollections()
-                    collectionsModel.setRowCount(0)
-                    collections.forEach { collectionName ->
-                        val description = MilvusConnectionService.instance().describeCollection(collectionName)
-                        collectionsModel.addRow(arrayOf(collectionName, description))
+
+    private fun loadStateIntoForm() {
+        val config = settingsState.toConnectionConfig()
+        hostField.text = config.host
+        portSpinner.value = config.port
+        usernameField.text = config.username.orEmpty()
+        defaultCollectionField.text = config.defaultCollection.orEmpty()
+        secureCheckBox.isSelected = config.secure
+        previewLimitSpinner.value = config.previewLimit
+
+        loadStoredPassword(config)
+    }
+
+    private fun loadStoredPassword(config: MilvusConnectionService.ConnectionConfig) {
+        val attrs = credentialAttributes(config.host, config.port, config.username)
+        val password = passwordSafe.getPassword(attrs)
+        if (!password.isNullOrEmpty()) {
+            passwordField.text = password
+        }
+    }
+
+    private fun connect(testOnly: Boolean) {
+        val validationError = validateForm()
+        if (validationError != null) {
+            notify(validationError, NotificationType.WARNING)
+            return
+        }
+
+        val config = buildConnectionConfig()
+        val passwordChars = passwordField.password
+        val passwordForStorage = passwordChars.concatToString()
+        val passwordCopy = passwordForStorage.toCharArray()
+
+        setConnectingState(true)
+
+        connectionService.connect(config, passwordCopy)
+            .whenComplete { _, throwable ->
+                invokeOnEdt {
+                    setConnectingState(false)
+                    clearArray(passwordCopy)
+                    clearArray(passwordChars)
+                    if (throwable != null) {
+                        notify("Connection failed: ${unwrap(throwable).message}", NotificationType.ERROR)
+                        statusLabel.text = "Disconnected"
+                        return@invokeOnEdt
                     }
-                } catch (e: Exception) {
-                    JOptionPane.showMessageDialog(panel, "Error loading collections: ${e.message}", "Error", JOptionPane.ERROR_MESSAGE)
-                }
-            } else {
-                JOptionPane.showMessageDialog(panel, "Please connect to Milvus first", "Not Connected", JOptionPane.WARNING_MESSAGE)
-            }
-        }
-        
-        panel.add(refreshButton, BorderLayout.NORTH)
-        panel.add(scrollPane, BorderLayout.CENTER)
-        return panel
-    }
-    
-    private fun createSearchPanel(): JPanel {
-        val panel = JBPanel<JBPanel<*>>(BorderLayout())
-        
-        val topPanel = JBPanel<JBPanel<*>>(GridLayout(0, 2, 5, 5))
-        
-        // Search fields
-        val collectionField = JBTextField("")
-        val vectorField = JBTextField("embedding")
-        val topKField = JBTextField("10")
-        val metricCombo = JComboBox(arrayOf("IP", "L2", "COSINE"))
-        val exprField = JBTextField("")
-        
-        val vectorInputArea = JBTextArea(5, 30)
-        vectorInputArea.text = "Paste your embedding vector as JSON array, e.g.: [0.1, 0.2, 0.3, ...]"
-        
-        val searchButton = JButton("Search")
-        val resultsTable = JBTable()
-        val resultsModel = DefaultTableModel(arrayOf("ID", "Distance", "Score"), 0)
-        resultsTable.model = resultsModel
-        
-        // Add components
-        topPanel.add(JBLabel("Collection:"))
-        topPanel.add(collectionField)
-        topPanel.add(JBLabel("Vector Field:"))
-        topPanel.add(vectorField)
-        topPanel.add(JBLabel("Top K:"))
-        topPanel.add(topKField)
-        topPanel.add(JBLabel("Metric:"))
-        topPanel.add(metricCombo)
-        topPanel.add(JBLabel("Expression:"))
-        topPanel.add(exprField)
-        
-        val vectorPanel = JBPanel<JBPanel<*>>(BorderLayout())
-        vectorPanel.add(JBLabel("Vector Input:"), BorderLayout.NORTH)
-        vectorPanel.add(JBScrollPane(vectorInputArea), BorderLayout.CENTER)
-        
-        val buttonPanel = JBPanel<JBPanel<*>>()
-        buttonPanel.add(searchButton)
-        
-        val resultsScrollPane = JBScrollPane(resultsTable)
-        
-        searchButton.addActionListener {
-            if (!MilvusConnectionService.instance().isConnected()) {
-                JOptionPane.showMessageDialog(panel, "Please connect to Milvus first", "Not Connected", JOptionPane.WARNING_MESSAGE)
-                return@addActionListener
-            }
-            
-            try {
-                // Parse vector input
-                val vectorText = vectorInputArea.text.trim()
-                if (vectorText.startsWith("[") && vectorText.endsWith("]")) {
-                    val vector = vectorText.removePrefix("[").removeSuffix("]")
-                        .split(",")
-                        .map { it.trim().toFloat() }
-                    
-                    val results = MilvusConnectionService.instance().searchVectors(
-                        collectionField.text,
-                        listOf(vector),
-                        vectorField.text,
-                        topKField.text.toInt(),
-                        metricCombo.selectedItem.toString(),
-                        exprField.text
-                    )
-                    
-                    if (results != null) {
-                        resultsModel.setRowCount(0)
-                        results.hits.forEach { hit ->
-                            resultsModel.addRow(arrayOf(hit.id, hit.distance, hit.score))
-                        }
+
+                    if (testOnly) {
+                        connectionService.disconnect()
+                        statusLabel.text = "Connection successful"
+                    } else {
+                        onConnected(config, passwordForStorage)
                     }
-                } else {
-                    JOptionPane.showMessageDialog(panel, "Invalid vector format. Please provide a JSON array.", "Invalid Input", JOptionPane.ERROR_MESSAGE)
                 }
-            } catch (e: Exception) {
-                JOptionPane.showMessageDialog(panel, "Search error: ${e.message}", "Error", JOptionPane.ERROR_MESSAGE)
             }
+    }
+
+    private fun onConnected(config: MilvusConnectionService.ConnectionConfig, password: String) {
+        settingsState.updateFrom(config)
+        if (password.isNotEmpty()) {
+            passwordSafe.setPassword(credentialAttributes(config.host, config.port, config.username), password)
         }
-        
-        panel.add(topPanel, BorderLayout.NORTH)
-        panel.add(vectorPanel, BorderLayout.CENTER)
-        panel.add(buttonPanel, BorderLayout.SOUTH)
-        panel.add(resultsScrollPane, BorderLayout.SOUTH)
-        
-        return panel
+        statusLabel.text = "Connected to ${config.host}:${config.port}"
+        disconnectButton.isEnabled = true
+        refreshCollectionsButton.isEnabled = true
+        connectButton.isEnabled = false
+        testConnectionButton.isEnabled = false
+
+        refreshCollections(config.defaultCollection)
+    }
+
+    private fun disconnect() {
+        connectionService.disconnect()
+        statusLabel.text = "Disconnected"
+        connectButton.isEnabled = true
+        disconnectButton.isEnabled = false
+        refreshCollectionsButton.isEnabled = false
+        testConnectionButton.isEnabled = true
+        collectionsModel.setRowCount(0)
+        recordsModel.setRowCount(0)
+        collectionMetaLabel.text = "Select a collection to preview records"
+    }
+
+    private fun refreshCollections(preselect: String? = null) {
+        if (!connectionService.isConnected()) {
+            notify("Connect to Milvus first", NotificationType.WARNING)
+            return
+        }
+        setCollectionsLoading(true)
+        connectionService.listCollections()
+            .whenComplete { summaries, throwable ->
+                invokeOnEdt {
+                    setCollectionsLoading(false)
+                    if (throwable != null) {
+                        notify("Failed to load collections: ${unwrap(throwable).message}", NotificationType.ERROR)
+                        return@invokeOnEdt
+                    }
+
+                    updateCollectionsTable(summaries ?: emptyList(), preselect)
+                }
+            }
+    }
+
+    private fun updateCollectionsTable(summaries: List<CollectionSummary>, preselect: String?) {
+        collectionsModel.setRowCount(0)
+        summaries.forEach { summary ->
+            collectionsModel.addRow(arrayOf(
+                summary.name,
+                summary.fieldCount,
+                if (summary.loaded) "Yes" else "No",
+                summary.description.orEmpty()
+            ))
+        }
+
+        if (summaries.isEmpty()) {
+            collectionMetaLabel.text = "No collections available"
+            recordsModel.setRowCount(0)
+            return
+        }
+
+        val targetName = preselect
+            ?: settingsState.toConnectionConfig().defaultCollection
+            ?: summaries.first().name
+
+        val rowIndex = summaries.indexOfFirst { it.name == targetName }.takeIf { it >= 0 } ?: 0
+        collectionsTable.selectionModel.setSelectionInterval(rowIndex, rowIndex)
+    }
+
+    private fun previewSelectedCollection() {
+        if (!connectionService.isConnected()) {
+            return
+        }
+        val row = collectionsTable.selectedRow
+        if (row < 0) {
+            return
+        }
+        val collectionName = collectionsTable.getValueAt(row, 0).toString()
+        setRecordsLoading(true)
+        connectionService.previewCollection(collectionName, currentPreviewLimit())
+            .whenComplete { preview, throwable ->
+                invokeOnEdt {
+                    setRecordsLoading(false)
+                    if (throwable != null) {
+                        notify("Failed to load records: ${unwrap(throwable).message}", NotificationType.ERROR)
+                        return@invokeOnEdt
+                    }
+                    if (preview != null) {
+                        applyPreview(preview)
+                    }
+                }
+            }
+    }
+
+    private fun applyPreview(preview: CollectionPreview) {
+        val fieldNames = preview.schema.fields.map { it.name }.toTypedArray()
+        recordsModel.setColumnIdentifiers(fieldNames)
+        recordsModel.setRowCount(0)
+        preview.rows.forEach { row ->
+            val values = preview.schema.fields.map { field -> formatValue(field, row[field.name]) }.toTypedArray()
+            recordsModel.addRow(values)
+        }
+
+        val summary = preview.schema.summary
+        val descriptionPart = summary.description?.let { " • $it" } ?: ""
+        collectionMetaLabel.text = "${summary.name} • ${summary.fieldCount} fields • Loaded: ${if (summary.loaded) "Yes" else "No"}$descriptionPart"
+    }
+
+    private fun validateForm(): String? {
+        if (hostField.text.isNullOrBlank()) {
+            return "Host is required"
+        }
+        val port = (portSpinner.value as Number).toInt()
+        if (port !in 1..65535) {
+            return "Port must be between 1 and 65535"
+        }
+        return null
+    }
+
+    private fun buildConnectionConfig(): MilvusConnectionService.ConnectionConfig =
+        MilvusConnectionService.ConnectionConfig(
+            host = hostField.text.trim(),
+            port = (portSpinner.value as Number).toInt(),
+            username = usernameField.text.trim().takeIf { it.isNotEmpty() },
+            secure = secureCheckBox.isSelected,
+            defaultCollection = defaultCollectionField.text.trim().takeIf { it.isNotEmpty() },
+            previewLimit = currentPreviewLimit()
+        )
+
+    private fun currentPreviewLimit(): Int = (previewLimitSpinner.value as Number).toInt()
+
+    private fun setConnectingState(connecting: Boolean) {
+        connectButton.isEnabled = !connecting
+        testConnectionButton.isEnabled = !connecting
+        disconnectButton.isEnabled = connectionService.isConnected() && !connecting
+        statusLabel.text = if (connecting) "Connecting…" else statusLabel.text
+    }
+
+    private fun setCollectionsLoading(loading: Boolean) {
+        refreshCollectionsButton.isEnabled = !loading
+        refreshCollectionsButton.text = if (loading) "Loading…" else "Refresh"
+    }
+
+    private fun setRecordsLoading(loading: Boolean) {
+        recordsTable.emptyText.setText(if (loading) "Loading records…" else "Select a collection to load data")
+    }
+
+    private fun formatValue(field: FieldInfo, value: Any?): Any? {
+        return when (value) {
+            null -> null
+            is FloatArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
+            is DoubleArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
+            is IntArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
+            is LongArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
+            is BooleanArray -> value.joinToString(prefix = "[", postfix = "]") { it.toString() }
+            is ByteArray -> value.joinToString(prefix = "[", postfix = "]") { (it.toInt() and 0xFF).toString() }
+            is List<*> -> formatList(value)
+            is Array<*> -> formatList(value.toList())
+            else -> value
+        }
+    }
+
+    private fun formatList(values: List<*>): String {
+        if (values.isEmpty()) return "[]"
+        val preview = values.take(10).joinToString { it?.toString().orEmpty() }
+        return if (values.size > 10) "[$preview, …]" else "[$preview]"
+    }
+
+    private fun credentialAttributes(host: String, port: Int, username: String?): CredentialAttributes {
+        val userPart = username?.takeIf { it.isNotBlank() } ?: "anonymous"
+        val serviceName = generateServiceName("MilvusConnector", "$host:$port:$userPart")
+        return CredentialAttributes(serviceName)
+    }
+
+    private fun notify(message: String, type: NotificationType) {
+        NotificationGroupManager.getInstance()
+            .getNotificationGroup("Milvus Connector")
+            .createNotification(message, type)
+            .notify(project)
+    }
+
+    private fun unwrap(throwable: Throwable): Throwable =
+        if (throwable is CompletionException && throwable.cause != null) throwable.cause!! else throwable
+
+    private fun invokeOnEdt(action: () -> Unit) {
+        if (ApplicationManager.getApplication().isDispatchThread) {
+            action()
+        } else {
+            EdtExecutorService.getInstance().execute(action)
+        }
+    }
+
+    private fun clearArray(array: CharArray) {
+        array.fill('\u0000')
+    }
+
+    override fun dispose() {
+        // nothing to dispose
     }
 }
