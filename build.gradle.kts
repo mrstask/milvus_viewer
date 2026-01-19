@@ -4,7 +4,7 @@ plugins {
 }
 
 group = "dev.potik"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -58,7 +58,7 @@ intellijPlatform {
 tasks {
     patchPluginXml {
         sinceBuild.set("242")
-        untilBuild.set("242.*")
+        untilBuild.set("252.*")
     }
     
     publishPlugin {

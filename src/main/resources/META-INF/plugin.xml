@@ -1,14 +1,14 @@
 <idea-plugin>
   <id>dev.potik.milvus-connector</id>
   <name>Milvus Vector Database Connector</name>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <vendor email="support@potik.dev" url="https://github.com/potik-dev/milvus-connector">potik.dev</vendor>
-  
+
   <description><![CDATA[
     <h3>Milvus Vector Database Connector for JetBrains IDEs</h3>
-    
+
     <p>A comprehensive plugin that enables seamless integration with Milvus vector databases directly from your JetBrains IDE. Perfect for AI/ML developers working with vector embeddings, semantic search, and recommendation systems.</p>
-    
+
     <h4>🚀 Key Features:</h4>
     <ul>
       <li><strong>Direct Database Connection</strong> - Connect to Milvus instances with support for authentication, TLS, and custom databases</li>
@@ -18,7 +18,7 @@
       <li><strong>Secure Credential Management</strong> - Passwords stored securely using JetBrains credential store</li>
       <li><strong>Real-time Statistics</strong> - Live updates of collection metadata and record counts</li>
     </ul>
-    
+
     <h4>🎯 Perfect for:</h4>
     <ul>
       <li>AI/ML Engineers working with vector databases</li>
@@ -26,7 +26,7 @@
       <li>Developers building recommendation systems</li>
       <li>Anyone working with semantic search applications</li>
     </ul>
-    
+
     <h4>💾 Supported Data Types:</h4>
     <ul>
       <li>Vector embeddings (float arrays)</li>
@@ -34,11 +34,18 @@
       <li>All Milvus primitive types</li>
       <li>Nested data structures with expandable views</li>
     </ul>
-    
+
     <p>Compatible with all JetBrains IDEs including IntelliJ IDEA, PyCharm, WebStorm, and more.</p>
     ]]></description>
-  
+
   <change-notes><![CDATA[
+    <h4>Version 1.0.1</h4>
+    <ul>
+      <li>Extended IDE compatibility to support PyCharm 2025.2.2 and newer versions</li>
+      <li>Fixed optional Python dependency configuration</li>
+      <li>Improved plugin marketplace compliance</li>
+    </ul>
+
     <h4>Version 1.0.0</h4>
     <ul>
       <li>Initial release</li>
@@ -53,20 +60,19 @@
     ]]></change-notes>
 
   <!-- Build numbers for IDE compatibility -->
-  <idea-version since-build="242" until-build="242.*"/>
-  
+  <idea-version since-build="242" until-build="252.*"/>
+
   <depends>com.intellij.modules.platform</depends>
-  <depends optional="true">com.intellij.modules.python</depends>
 
   <extensions defaultExtensionNs="com.intellij">
     <toolWindow id="Milvus" factoryClass="dev.potik.milvus.ui.MilvusToolWindowFactory"
                 anchor="left" canCloseContent="false" />
     <applicationService serviceImplementation="dev.potik.milvus.core.MilvusConnectionService"/>
     <notificationGroup id="Milvus Connector" displayType="BALLOON" isLogByDefault="false"/>
-    
+
     <!-- File editor for Milvus collections -->
     <fileEditorProvider implementation="dev.potik.milvus.editor.MilvusCollectionEditorProvider"/>
-    
+
     <!-- Virtual file system for Milvus collections -->
     <virtualFileSystem key="milvus" implementationClass="dev.potik.milvus.editor.MilvusVirtualFileSystem"/>
   </extensions>
@@ -75,3 +81,5 @@
     <action id="Milvus.Connect" class="dev.potik.milvus.actions.ConnectAction" text="Connect to Milvus"/>
   </actions>
 </idea-plugin>
+
+

@@ -109,7 +109,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
             add(JBLabel("Password:"))
             add(passwordField.apply { preferredSize = java.awt.Dimension(100, preferredSize.height) })
         }
-        
+
         // Create inline panel for database only
         val dbPanel = JPanel(FlowLayout(FlowLayout.LEFT, 5, 0)).apply {
             add(JBLabel("Database:"))
@@ -160,7 +160,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
         collectionsTable.autoCreateRowSorter = true
         collectionsTable.tableHeader.reorderingAllowed = false
         collectionsTable.emptyText.text = "Connect to Milvus to load collections"
-        
+
         // Add double-click and right-click listeners
         collectionsTable.addMouseListener(object : MouseAdapter() {
             override fun mouseClicked(e: MouseEvent) {
@@ -172,13 +172,13 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
                     }
                 }
             }
-            
+
             override fun mousePressed(e: MouseEvent) {
                 if (e.isPopupTrigger) {
                     showContextMenu(e)
                 }
             }
-            
+
             override fun mouseReleased(e: MouseEvent) {
                 if (e.isPopupTrigger) {
                     showContextMenu(e)
@@ -314,7 +314,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
                 "Loading..." // We'll load the record count asynchronously
             ))
         }
-        
+
         // Load column counts and record counts asynchronously
         summaries.forEachIndexed { index, summary ->
             loadColumnCount(summary.name, index)
@@ -410,7 +410,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private fun credentialAttributes(host: String, port: Int, username: String?): CredentialAttributes {
         val userPart = username?.takeIf { it.isNotBlank() } ?: "anonymous"
         val serviceName = generateServiceName("MilvusConnector", "$host:$port:$userPart")
-        return CredentialAttributes(serviceName)
+        return CredentialAttributes(serviceName, userPart)
     }
 
     private fun notify(message: String, type: NotificationType) {
@@ -437,25 +437,25 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
 
     private fun showContextMenu(e: MouseEvent) {
         if (!connectionService.isConnected()) return
-        
+
         val row = collectionsTable.rowAtPoint(e.point)
         if (row >= 0) {
             collectionsTable.setRowSelectionInterval(row, row)
             val collectionName = collectionsTable.getValueAt(row, 0).toString()
-            
+
             val popupMenu = JPopupMenu()
             val openInEditorItem = JMenuItem("Open in Editor")
             openInEditorItem.addActionListener {
                 openCollectionInEditor(collectionName)
             }
             popupMenu.add(openInEditorItem)
-            
+
             val refreshItem = JMenuItem("Refresh Collection")
             refreshItem.addActionListener {
                 refreshCollections()
             }
             popupMenu.add(refreshItem)
-            
+
             popupMenu.show(collectionsTable, e.x, e.y)
         }
     }
@@ -463,7 +463,7 @@ private class MilvusToolWindow(private val project: Project) : com.intellij.open
     private fun openCollectionInEditor(collectionName: String) {
         val config = connectionService.getActiveConfig() ?: return
         val virtualFile = MilvusCollectionVirtualFile(collectionName, config)
-        
+
         invokeOnEdt {
             FileEditorManager.getInstance(project).openFile(virtualFile, true)
         }

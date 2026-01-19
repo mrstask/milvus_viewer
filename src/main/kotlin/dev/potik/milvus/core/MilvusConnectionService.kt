@@ -63,6 +63,7 @@ class MilvusConnectionService : Disposable {
     private var client: MilvusServiceClient? = null
     private val activeConfig = AtomicReference<ConnectionConfig?>()
 
+    @Suppress("DEPRECATION")
     fun connect(config: ConnectionConfig, password: CharArray?): CompletableFuture<Unit> {
         val passwordValue = password?.concatToString()?.takeIf { it.isNotBlank() }
         password?.fill('\u0000')
@@ -71,12 +72,15 @@ class MilvusConnectionService : Disposable {
             val builder = ConnectParam.newBuilder()
                 .withHost(config.host)
                 .withPort(config.port)
-                .withSecure(config.secure)
+
+            if (config.secure) {
+                builder.secure(true)
+            }
 
             if (config.username != null && passwordValue != null) {
                 builder.withAuthorization(config.username, passwordValue)
             }
-            
+
             if (config.databaseName != null) {
                 builder.withDatabaseName(config.databaseName)
             }
@@ -167,8 +171,8 @@ class MilvusConnectionService : Disposable {
     }
 
     fun previewCollectionPaginated(
-        collectionName: String, 
-        offset: Int = 0, 
+        collectionName: String,
+        offset: Int = 0,
         limit: Int = DEFAULT_PREVIEW_LIMIT
     ): CompletableFuture<CollectionPreview> = runAsync {
         val milvus = client()
@@ -218,9 +222,9 @@ class MilvusConnectionService : Disposable {
             .withOutFields(listOf("count(*)"))
             .withExpr("")
             .build()
-        
+
         val countResult = milvus.query(countQuery)
-        
+
         if (countResult.status != R.Status.Success.ordinal) {
             log.warn("Failed to get count for collection $collectionName: ${countResult.message}")
             0L
@@ -299,3 +303,5 @@ class MilvusConnectionService : Disposable {
             ApplicationManager.getApplication().getService(MilvusConnectionService::class.java)
     }
 }
+
+
