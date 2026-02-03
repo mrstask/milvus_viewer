@@ -1,10 +1,10 @@
 plugins {
-    id("org.jetbrains.intellij.platform") version "2.9.0"
-    kotlin("jvm") version "1.9.24"
+    id("org.jetbrains.intellij.platform") version "2.11.0"
+    kotlin("jvm") version "2.2.21"
 }
 
 group = "dev.potik"
-version = "1.0.0"
+version = "1.0.1"
 
 repositories {
     mavenCentral()
@@ -19,7 +19,7 @@ dependencies {
     implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.17.2")
     
     intellijPlatform {
-        pycharmProfessional("2024.2")
+        intellijIdea("2025.3")
         pluginVerifier()
         zipSigner()
     }
@@ -57,8 +57,8 @@ intellijPlatform {
 
 tasks {
     patchPluginXml {
-        sinceBuild.set("242")
-        untilBuild.set("242.*")
+        sinceBuild.set("253")
+        untilBuild.set("253.*")
     }
     
     publishPlugin {

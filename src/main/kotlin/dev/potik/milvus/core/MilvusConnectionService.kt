@@ -71,7 +71,7 @@ class MilvusConnectionService : Disposable {
             val builder = ConnectParam.newBuilder()
                 .withHost(config.host)
                 .withPort(config.port)
-                .withSecure(config.secure)
+                .secure(config.secure)
 
             if (config.username != null && passwordValue != null) {
                 builder.withAuthorization(config.username, passwordValue)

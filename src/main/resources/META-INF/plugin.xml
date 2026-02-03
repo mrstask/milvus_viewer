@@ -1,7 +1,7 @@
 <idea-plugin>
   <id>dev.potik.milvus-connector</id>
   <name>Milvus Vector Database Connector</name>
-  <version>1.0.0</version>
+  <version>1.0.1</version>
   <vendor email="support@potik.dev" url="https://github.com/potik-dev/milvus-connector">potik.dev</vendor>
   
   <description><![CDATA[
@@ -39,21 +39,14 @@
     ]]></description>
   
   <change-notes><![CDATA[
-    <h4>Version 1.0.0</h4>
+    <h4>Version 1.0.1</h4>
     <ul>
-      <li>Initial release</li>
-      <li>Milvus database connection with authentication support</li>
-      <li>Collection browser with real-time statistics</li>
-      <li>Paginated data viewer with 100 records per page</li>
-      <li>Expandable view for vector embeddings and JSON data</li>
-      <li>Secure password storage integration</li>
-      <li>Support for TLS connections</li>
-      <li>Compatible with Milvus 2.0+</li>
+      <li>Updated compatibility for JetBrains 2025.3 IDEs.</li>
     </ul>
     ]]></change-notes>
 
   <!-- Build numbers for IDE compatibility -->
-  <idea-version since-build="242" until-build="242.*"/>
+  <idea-version since-build="253" until-build="253.*"/>
   
   <depends>com.intellij.modules.platform</depends>
   <depends optional="true">com.intellij.modules.python</depends>
